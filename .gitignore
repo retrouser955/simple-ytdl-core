@@ -1,0 +1,7 @@
+dist/*
+node_modules/*
+.yarn/*
+
+# some internal test files
+test.js
+test.mjs
