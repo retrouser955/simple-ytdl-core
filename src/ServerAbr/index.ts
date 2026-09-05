@@ -12,6 +12,7 @@ interface SabrNodeStreamOptions extends ReadableOptions {
     stopSabr: () => void;
 }
 
+// #region SabrStream to NodeJS stream converter
 class ServerAbrStream extends Readable {
     stopSabr: () => void;
     private reader: ReadableStreamDefaultReader<Uint8Array>;
@@ -74,6 +75,7 @@ class ServerAbrStream extends Readable {
         callback(error);
     }
 }
+// #endregion
 
 const DEFAULT_OPTIONS = {
     audioQuality: "AUDIO_QUALITY_MEDIUM",
@@ -120,27 +122,14 @@ export async function createSabrStream(innertube: Innertube, videoId: string) {
     const contentPoToken = await botguard.createBindingToken(videoId);
     const poToken = await botguard.createBindingToken(dataSyncId);
 
-    const watchEndpoint = new YTNodes.NavigationEndpoint({ watchEndpoint: { videoId } });
-
-    const playerResponse = await watchEndpoint.call(innertube.actions, {
-        playbackContext: {
-            // adPlaybackContext: { pyv: true },
-            contentPlaybackContext: {
-                vis: 0,
-                splay: false,
-                lactMilliseconds: "-1",
-                signatureTimestamp: innertube.session.player?.signature_timestamp,
-            },
-        },
-        contentCheckOk: true,
-        racyCheckOk: true,
-        serviceIntegrityDimensions: { poToken },
-        parse: true,
-    });
+    const playerResponse = await innertube.getBasicInfo(videoId, {
+        po_token: poToken
+    })
 
     const serverAbrStreamingUrl = await innertube.session.player?.decipher(
         playerResponse.streaming_data?.server_abr_streaming_url,
     );
+
     const videoPlaybackUstreamerConfig = playerResponse
         .player_config?.media_common_config
         .media_ustreamer_request_config?.video_playback_ustreamer_config;
@@ -148,7 +137,7 @@ export async function createSabrStream(innertube: Innertube, videoId: string) {
     if (!videoPlaybackUstreamerConfig) throw new Error("ustreamerConfig not found");
     if (!serverAbrStreamingUrl) throw new Error("serverAbrStreamingUrl not found");
 
-    const sabrFormats: SabrFormat[] = playerResponse.streaming_data?.adaptive_formats.map(buildSabrFormat) || [];
+    const sabrFormats: SabrFormat[] = playerResponse.streaming_data?.adaptive_formats.map(buildSabrFormat).filter(f => f.isOriginal ?? true) || [];
 
     const serverAbrStream = new SabrStream({
         formats: sabrFormats,
