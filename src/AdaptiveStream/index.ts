@@ -29,7 +29,7 @@ const RELIABLE_CLIENTS: ClientList = [
 ] as const;
 
 export async function createAdaptiveStreamMultiStep(innertube: Innertube, videoId: string, clientList?: ClientList) {
-    ytdlDebugger.debug("Downloading by trying to different clients...");
+    ytdlDebugger.debug("Downloading by trying to clients...");
 
     let firstRun = true;
     let poToken: string | undefined = undefined;
