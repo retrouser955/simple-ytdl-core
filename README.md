@@ -101,3 +101,43 @@ const { Innertube } = require("youtubei.js");
     throw err
 });
 ```
+
+So far, our examples only download audio since this package's focus is for discord-player-youtubei. In the next section, we will learn how to merge streams to get qualities up to 4K.
+
+# Merged Streams
+
+On higher qualities such as 1080p or 1440p, YouTube deliver seperated streams. Good news, this package automatically package merge these into a single audio file :\).
+
+## Requirements
+
+[`mediabunny`](https://mediabunny.dev/) is required for muxing streams. Let us install mediabunny.
+
+```bash
+npm install mediabunny
+# Not required but recommended. This will ensure weird formats will be merged correctly
+npm install @mediabunny/server
+```
+
+`@mediabunny/server` is a library that polyfills WebAPIs in a NodeJS server using [`node-av`](https://github.com/seydx/node-av) (a FFmpeg wrapper). This is good to have for weird formats to ensure stability. The below example has been tested without the use of `@mediabunny/server` and confirmed to be working. Without `@mediabunny/server`, the library will not use FFmpeg to transcode.
+
+```ts
+const { createWriteStream } = require("node:fs");
+const { ytdlDebugger, createSabrStream } = require("simple-ytdl-core");
+const { Innertube } = require("youtubei.js");
+const { EnabledTrackTypes } = require('googlevideo/utils')
+
+;(async () => {
+    ytdlDebugger.onDebug(console.log);
+
+    const tube = await Innertube.create();
+    const stream = await createSabrStream(tube, "y1uzBncUsQQ", {
+        enabledTrackTypes: EnabledTrackTypes.VIDEO_AND_AUDIO,
+        preferMP4: true,
+        videoQuality: "720p" // go up to 4K for supported videos!
+    });
+
+    stream.pipe(createWriteStream("./Origami.mp4"))
+})().catch(err => {
+    throw err
+});
+```

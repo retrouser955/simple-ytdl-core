@@ -1,15 +1,40 @@
 import type Innertube from "youtubei.js";
-import { Platform, Types, type YT, YTNodes, Constants } from "youtubei.js";
-import { SabrStream } from "googlevideo/sabr-stream"
+import { Platform, Types, type YT, Constants } from "youtubei.js";
+import { type SabrPlaybackOptions, SabrStream } from "googlevideo/sabr-stream"
 import { SabrFormat } from "googlevideo/shared-types";
 import { BotGuardSimplified } from "../BotGuard";
 import { buildSabrFormat, EnabledTrackTypes } from "googlevideo/utils"
 import { ytdlDebugger } from "../Debugger";
 import { Readable, ReadableOptions } from "node:stream";
+import { mergeStreams } from "../StreamUtils/MergeStream";
 
 interface SabrNodeStreamOptions extends ReadableOptions {
     webStream: ReadableStream<Uint8Array>;
     stopSabr: () => void;
+}
+
+function setupSabrCleanUpStream(webStream: ReadableStream<Uint8Array>, stopSabr: () => unknown) {
+    const reader = webStream.getReader();
+    const cleanupStream = new ReadableStream<Uint8Array>({
+        async pull(container) {
+            try {
+                const { done, value } = await reader.read();
+                if (done) {
+                    container.close();
+                    return;
+                }
+
+                container.enqueue(value);
+            } catch (error) {
+                container.error(error);
+            }
+        },
+        cancel() {
+            stopSabr();
+        }
+    });
+
+    return cleanupStream
 }
 
 // #region SabrStream to NodeJS stream converter
@@ -77,7 +102,7 @@ class ServerAbrStream extends Readable {
 }
 // #endregion
 
-const DEFAULT_OPTIONS = {
+const DEFAULT_OPTIONS: SabrPlaybackOptions = {
     audioQuality: "AUDIO_QUALITY_MEDIUM",
     enabledTrackTypes: EnabledTrackTypes.AUDIO_ONLY,
 };
@@ -98,7 +123,7 @@ Platform.shim.eval = async (data: Types.BuildScriptResult, env: Record<string, T
     return new Function(code)();
 };
 
-export async function createSabrStream(innertube: Innertube, videoId: string) {
+export async function createSabrStream(innertube: Innertube, videoId: string, options: SabrPlaybackOptions = DEFAULT_OPTIONS) {
     const botguard = await BotGuardSimplified.create(innertube);
 
     let accountInfo: null | YT.AccountInfo = null;
@@ -182,14 +207,37 @@ export async function createSabrStream(innertube: Innertube, videoId: string) {
         }
     });
 
-    const { audioStream } = await serverAbrStream.start(DEFAULT_OPTIONS);
+    if (options.enabledTrackTypes === EnabledTrackTypes.AUDIO_ONLY) {
+        const streams = await serverAbrStream.start(options);
+        const cleanupStream = setupSabrCleanUpStream(streams.audioStream, () => serverAbrStream.abort());
 
-    const nodeSabrStream = new ServerAbrStream({
-        stopSabr: () => {
-            serverAbrStream.abort()
-        },
-        webStream: audioStream
-    })
+        return Readable.fromWeb(cleanupStream as Parameters<typeof Readable.fromWeb>[0]);
+    }
 
-    return nodeSabrStream
+    if (options.enabledTrackTypes === EnabledTrackTypes.VIDEO_ONLY) {
+        const streams = await serverAbrStream.start(options);
+        const cleanupStream = setupSabrCleanUpStream(streams.videoStream, () => serverAbrStream.abort());
+
+        return Readable.fromWeb(cleanupStream as Parameters<typeof Readable.fromWeb>[0]);
+    }
+
+    const { audioStream, videoStream } = await serverAbrStream.start(options);
+
+    ytdlDebugger.debug("Merging audio and video streams into mp4. This may fail if @mediabunny/server is not installed.");
+    ytdlDebugger.debug("To ensure reliablity, please either install @mediabunny/server or ensure only MP4 formats are selected with the options parameter")
+    const [audioCleanupStream, videoCleanupStream] = [
+        setupSabrCleanUpStream(audioStream, () => serverAbrStream.abort()),
+        setupSabrCleanUpStream(videoStream, () => serverAbrStream.abort())
+    ]
+
+    const mergedStream = await mergeStreams(videoCleanupStream, audioCleanupStream);
+
+    return Readable.fromWeb(mergedStream as Parameters<typeof Readable.fromWeb>[0])
+
+    // const nodeSabrStream = new ServerAbrStream({
+    //     stopSabr: () => {
+    //         serverAbrStream.abort()
+    //     },
+    //     webStream: audioStream
+    // })
 }

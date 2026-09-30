@@ -5,3 +5,4 @@ node_modules/*
 # some internal test files
 test.js
 test.mjs
+test.txt
