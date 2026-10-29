@@ -58,62 +58,62 @@ export class BotGuardSimplified {
     }
 
     async createBindingToken(videoId: string) {
-        const exeuctionId = this.generateExecId();
+        const execId = this.generateExecId();
         const message: GenerateToken = {
             d: {
                 binder: videoId
             },
-            exec: exeuctionId,
+            exec: execId,
             op: BotguardOperations.BindingToken,
             ua: this._innertube.session.user_agent,
         }
         this.worker.postMessage(message)
-        const response = await this.createWorkerPromise<string>(exeuctionId);
+        const response = await this.createWorkerPromise<string>(execId);
 
         return response;
     }
 
     async generatePlaceholder(bindingId: string) {
-        const exeuctionId = this.generateExecId();
+        const execId = this.generateExecId();
         const message: GenerateToken = {
             d: {
                 binder: bindingId
             },
-            exec: exeuctionId,
+            exec: execId,
             op: BotguardOperations.PlaceholderToken,
             ua: this._innertube.session.user_agent,
         }
         this.worker.postMessage(message)
-        const response = await this.createWorkerPromise<string>(exeuctionId);
+        const response = await this.createWorkerPromise<string>(execId);
 
         return response;
     }
 
     async createUnsafeBindingToken(videoId: string) {
-        const exeuctionId = this.generateExecId();
+        const execId = this.generateExecId();
         const message: GenerateToken = {
             d: {
                 binder: videoId
             },
-            exec: exeuctionId,
+            exec: execId,
             op: BotguardOperations.UnsafeBindingToken,
             ua: this._innertube.session.user_agent,
         }
         this.worker.postMessage(message)
-        const response = await this.createWorkerPromise<Uint8Array<ArrayBufferLike>>(exeuctionId);
+        const response = await this.createWorkerPromise<Uint8Array<ArrayBufferLike>>(execId);
 
         return response;
     }
 
     async shutdown() {
-        const exeuctionId = this.generateExecId();
+        const execId = this.generateExecId();
         const message: Shutdown = {
-            exec: exeuctionId,
+            exec: execId,
             d: {},
             op: BotguardOperations.ShutDown,
             ua: this._innertube.session.user_agent,
         }
         this.worker.postMessage(message)
-        await this.createWorkerPromise<void>(exeuctionId);
+        await this.createWorkerPromise<void>(execId);
     }
 }
