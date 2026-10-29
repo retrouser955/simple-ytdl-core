@@ -125,6 +125,7 @@ export class BotGuardSimplified {
 
     async kill() {
         await this.shutdown();
+        bgSimplified = undefined;
         return this.worker.terminate();
     }
 }
