@@ -141,3 +141,29 @@ const { EnabledTrackTypes } = require('googlevideo/utils')
     throw err
 });
 ```
+
+# Advanced
+
+For advanced users, `simple-ytdl-core` also exposes `BotGuardSimplified` API (which itself is based on `bgutils-js`). This API is the backbone for the downloader's built in PO-Token extraction. It runs a worker based po-token extraction code used by both adaptive and sabr streams.
+
+```ts
+const { BotGuardSimplified } = require("simple-ytdl-core");
+const { Innertube } = require("youtubei.js");
+
+;(async () => {
+    const tube = await innertube.create();
+    const botguard = await BotGuardSimplified.create(tube);
+
+    // create a string based 'safe' content binding token based on video ID, data sync ID or visitor data
+    const stringToken = await botguard.createBindingToken("y1uzBncUsQQ");
+    // exposes the underlying Uint8Array insteading of converting to Base64
+    const uint8Token = await botguard.createUnsafeBindingToken("y1uzBncUsQQ");
+    // generate a 'cold start' placeholder token
+    const coldstartToken = await botguard.generatePlaceholder("y1uzBncUsQQ");
+
+    // shut down the botguard client
+    // this will still keep the worker alive for future use cases
+    // use .kill() to kill the worker instead
+    await botguard.shutdown();
+})()
+```

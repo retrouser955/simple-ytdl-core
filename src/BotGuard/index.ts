@@ -122,4 +122,9 @@ export class BotGuardSimplified {
         this.worker.postMessage(message)
         await this.createWorkerPromise<void>(execId);
     }
+
+    async kill() {
+        this.shutdown();
+        return this.worker.terminate();
+    }
 }
