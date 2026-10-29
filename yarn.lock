@@ -63,6 +63,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@bufbuild/protobuf@npm:^2.16.0":
+  version: 2.16.0
+  resolution: "@bufbuild/protobuf@npm:2.16.0"
+  checksum: 10c0/ba3bc677e801a71d9cf0bdc138174144e493706efec3a47865eb07e956423315a80ff12301f6835d352202ae4d6599f2946a7c67338cf0079ed2a06af1a18097
+  languageName: node
+  linkType: hard
+
 "@csstools/color-helpers@npm:^6.1.1":
   version: 6.1.1
   resolution: "@csstools/color-helpers@npm:6.1.1"
@@ -1327,12 +1334,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"googlevideo@npm:^4.1.1":
-  version: 4.1.1
-  resolution: "googlevideo@npm:4.1.1"
+"googlevideo@npm:^5.0.1":
+  version: 5.0.1
+  resolution: "googlevideo@npm:5.0.1"
   dependencies:
-    "@bufbuild/protobuf": "npm:^2.0.0"
-  checksum: 10c0/7b3e676bdbbb0da076c621b15a83dd188ffcade9e0b707594b2aac6e1e0c31bf77cb999d91cccd2f36f8ae04ac5af232ff1d3d98c23c6b1e7e5ad20b52d059c5
+    "@bufbuild/protobuf": "npm:^2.16.0"
+  checksum: 10c0/2b0669b81552d40e41c84037ed41b286e3459f9620ead1664a6742bfe9aa8a5f0a7ee96ab2eea5a04cc0113020896b7c02b37af889453fc17ca5a95a014ab522
   languageName: node
   linkType: hard
 
@@ -1858,12 +1865,12 @@ __metadata:
     "@types/jsdom": "npm:^30.0.0"
     "@types/node": "npm:^26.4.1"
     bgutils-js: "npm:^4.0.3"
-    googlevideo: "npm:^4.1.1"
+    googlevideo: "npm:^5.0.1"
     jsdom: "npm:29.0.1"
     mediabunny: "npm:^1.60.0"
     tsdown: "npm:^0.22.14"
     typescript: "npm:^7.0.2"
-    youtubei.js: "npm:^18.0.0"
+    youtubei.js: "npm:^18.3.0"
   languageName: unknown
   linkType: soft
 
@@ -2430,14 +2437,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"youtubei.js@npm:^18.0.0":
-  version: 18.0.0
-  resolution: "youtubei.js@npm:18.0.0"
+"youtubei.js@npm:^18.3.0":
+  version: 18.3.0
+  resolution: "youtubei.js@npm:18.3.0"
   dependencies:
     "@bufbuild/protobuf": "npm:^2.0.0"
     fflate: "npm:^0.8.2"
     meriyah: "npm:^7.3.1"
-  checksum: 10c0/cd43fc79646f66ca5f3f1f95f55721c8d1eb9cb2b0973cc0133a7bd93a123d442207e0a505e2aff3af8a6d98681a209aab307835aec40269917d3f992ea153b5
+  checksum: 10c0/5c99266f727c5e8600f8204d860755fa630504e95d49589c3bf91f328233fc9df81196af3c2a4e8dc637a27e660ec6ff2ee198dabc281108fb415da418c4aad1
   languageName: node
   linkType: hard
 

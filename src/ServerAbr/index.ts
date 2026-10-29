@@ -1,21 +1,22 @@
 import type Innertube from "youtubei.js";
-import { Platform, Types, type YT, Constants } from "youtubei.js";
-import { type SabrPlaybackOptions, SabrStream } from "googlevideo/sabr-stream"
+import { Platform, Types, type YT, Constants, IPlayerResponse, YTNodes } from "youtubei.js";
+import { PlayabilityStatus, type SabrPlaybackOptions, SabrStream } from "googlevideo/sabr-stream"
 import { SabrFormat } from "googlevideo/shared-types";
 import { BotGuardSimplified } from "../BotGuard";
 import { buildSabrFormat, EnabledTrackTypes } from "googlevideo/utils"
 import { ytdlDebugger } from "../Debugger";
 import { Readable, ReadableOptions } from "node:stream";
 import { mergeStreams } from "../StreamUtils/MergeStream";
+import { makePlayerRequest } from "./utils";
 
 interface SabrNodeStreamOptions extends ReadableOptions {
     webStream: ReadableStream<Uint8Array>;
     stopSabr: () => void;
 }
 
-function setupSabrCleanUpStream(webStream: ReadableStream<Uint8Array>, stopSabr: () => unknown) {
+function setupSabrCleanUpStream(webStream: ReadableStream<ArrayBufferView<ArrayBufferLike>>, stopSabr: () => unknown) {
     const reader = webStream.getReader();
-    const cleanupStream = new ReadableStream<Uint8Array>({
+    const cleanupStream = new ReadableStream<ArrayBufferView<ArrayBufferLike>>({
         async pull(container) {
             try {
                 const { done, value } = await reader.read();
@@ -102,9 +103,12 @@ class ServerAbrStream extends Readable {
 }
 // #endregion
 
-const DEFAULT_OPTIONS: SabrPlaybackOptions = {
-    audioQuality: "AUDIO_QUALITY_MEDIUM",
+const DEFAULT_OPTIONS: Omit<SabrPlaybackOptions, "isPostLiveDvr"> = {
     enabledTrackTypes: EnabledTrackTypes.AUDIO_ONLY,
+    audioPreferences: {
+        container: "mp4"
+    },
+    videoPreferences: {}
 };
 
 Platform.shim.eval = async (data: Types.BuildScriptResult, env: Record<string, Types.VMPrimative>) => {
@@ -123,7 +127,7 @@ Platform.shim.eval = async (data: Types.BuildScriptResult, env: Record<string, T
     return new Function(code)();
 };
 
-export async function createSabrStream(innertube: Innertube, videoId: string, options: SabrPlaybackOptions = DEFAULT_OPTIONS) {
+export async function createSabrStream(innertube: Innertube, videoId: string, options: Omit<SabrPlaybackOptions, "isPostLiveDvr"> = DEFAULT_OPTIONS) {
     const botguard = await BotGuardSimplified.create(innertube);
 
     let accountInfo: null | YT.AccountInfo = null;
@@ -147,9 +151,9 @@ export async function createSabrStream(innertube: Innertube, videoId: string, op
     const contentPoToken = await botguard.createBindingToken(videoId);
     const poToken = await botguard.createBindingToken(dataSyncId);
 
-    const playerResponse = await innertube.getBasicInfo(videoId, {
-        po_token: poToken
-    })
+    const playerResponse = await makePlayerRequest(innertube, videoId) as IPlayerResponse;
+
+    const heartbeatParams = playerResponse.heartbeat_params;
 
     const serverAbrStreamingUrl = await innertube.session.player?.decipher(
         playerResponse.streaming_data?.server_abr_streaming_url,
@@ -173,55 +177,119 @@ export async function createSabrStream(innertube: Innertube, videoId: string, op
             clientName: parseInt(Constants.CLIENT_NAME_IDS[innertube.session.context.client.clientName as keyof typeof Constants.CLIENT_NAME_IDS]),
             clientVersion: innertube.session.context.client.clientVersion,
         },
+        heartbeatParams: {
+            // technically heartbeat params accept possible undefined data as shown in the example of the library
+            // i dont know why it is typed like this here
+            heartbeatServerData: heartbeatParams?.heartbeat_server_data!,
+            heartbeatToken: heartbeatParams?.heartbeat_token!,
+            intervalMilliseconds: heartbeatParams?.interval_milliseconds!
+        },
+        callbacks: {
+            // @ts-expect-error copied exactly the example but typescript got angry
+            onCheckHeartbeat: async (innertubeRequestBody) => {
+                const heartbeatResponse = await innertube.actions.execute('/player/heartbeat', {
+                    ...innertubeRequestBody,
+                    parse: true
+                });
 
+                if (!heartbeatResponse.playability_status || !heartbeatResponse.playability_status_memo) {
+                    throw new Error('Invalid heartbeat response: missing playability_status');
+                }
+
+                const status = heartbeatResponse.playability_status.status as PlayabilityStatus;
+                const pollDelayMs = heartbeatResponse.poll_delay_ms;
+                const liveStreamability = heartbeatResponse.playability_status_memo?.getType(YTNodes.LiveStreamability).first();
+                const displayEndscreen = !!liveStreamability.display_endscreen;
+                const offlineSlate = liveStreamability.offline_slate;
+                const broadcastId = liveStreamability.broadcast_id;
+
+                return {
+                    status,
+                    displayEndscreen,
+                    offlineSlatePresent: !!offlineSlate,
+                    offlineSlateButtonsPresent: !!offlineSlate?.action_buttons.length,
+                    broadcastId,
+                    pollDelayMs
+                };
+            },
+            onMintPoToken: async () => {
+                const minter = await BotGuardSimplified.create(innertube);
+                return minter.createUnsafeBindingToken(videoId);
+            },
+            onReloadPlayerResponse: async (playbackContext) => {
+                const playerResponse = await makePlayerRequest(innertube, videoId, playbackContext);
+                const serverAbrStreamingUrl = await innertube.session.player?.decipher(playerResponse.streaming_data?.server_abr_streaming_url);
+                const videoPlaybackUstreamerConfig = playerResponse.player_config?.media_common_config.media_ustreamer_request_config?.video_playback_ustreamer_config;
+
+                if (!serverAbrStreamingUrl || !videoPlaybackUstreamerConfig) {
+                    throw new Error('Missing serverAbrStreamingUrl or videoPlaybackUstreamerConfig in reloaded player response');
+                }
+
+                return {
+                    videoPlaybackUstreamerConfig,
+                    serverAbrStreamingUrl
+                };
+            },
+        },
+        videoId
     });
 
-    let protectionFailureCount = 0;
-    let lastStatus: any = null;
+    // let protectionFailureCount = 0;
+    // let lastStatus: any = null;
 
-    serverAbrStream.on("streamProtectionStatusUpdate", async (statusUpdate: any) => {
-        if (statusUpdate.status !== lastStatus) {
-            ytdlDebugger.debug("Stream Protection Status Update: \n" + JSON.stringify(statusUpdate, null, 2));
-            lastStatus = statusUpdate.status;
-        }
-        if (statusUpdate.status === 2) {
-            protectionFailureCount = Math.min(protectionFailureCount + 1, 10);
-            if (protectionFailureCount === 1 || protectionFailureCount % 5 === 0) ytdlDebugger.debug(`Rotating PO token... (attempt ${protectionFailureCount})`);
+    // serverAbrStream.on("streamProtectionStatusUpdate", async (statusUpdate: any) => {
+    //     if (statusUpdate.status !== lastStatus) {
+    //         ytdlDebugger.debug("Stream Protection Status Update: \n" + JSON.stringify(statusUpdate, null, 2));
+    //         lastStatus = statusUpdate.status;
+    //     }
+    //     if (statusUpdate.status === 2) {
+    //         protectionFailureCount = Math.min(protectionFailureCount + 1, 10);
+    //         if (protectionFailureCount === 1 || protectionFailureCount % 5 === 0) ytdlDebugger.debug(`Rotating PO token... (attempt ${protectionFailureCount})`);
 
-            try {
-                const rotationMinter = await BotGuardSimplified.create(innertube, protectionFailureCount >= 3)
-                const placeholderToken = rotationMinter.generatePlaceholder(videoId);
-                serverAbrStream.setPoToken(placeholderToken);
-                const mintedPoToken = await rotationMinter.createBindingToken(videoId);
-                serverAbrStream.setPoToken(mintedPoToken);
-            } catch (err) {
-                if (protectionFailureCount === 1 || protectionFailureCount % 5 === 0)
-                    ytdlDebugger.debug("Failed to rotate PO token:" + err);
+    //         try {
+    //             const rotationMinter = await BotGuardSimplified.create(innertube, protectionFailureCount >= 3)
+    //             const placeholderToken = rotationMinter.generatePlaceholder(videoId);
+    //             serverAbrStream.
+    //                 serverAbrStream.setPoToken(placeholderToken);
+    //             const mintedPoToken = await rotationMinter.createBindingToken(videoId);
+    //             serverAbrStream.setPoToken(mintedPoToken);
+    //         } catch (err) {
+    //             if (protectionFailureCount === 1 || protectionFailureCount % 5 === 0)
+    //                 ytdlDebugger.debug("Failed to rotate PO token:" + err);
 
-            }
-        } else if (statusUpdate.status === 3) {
-            ytdlDebugger.debug("Stream protection rejected token (SPS 3). Resetting Botguard.");
-            botguard.shutdown();
-        } else {
-            protectionFailureCount = 0;
-        }
-    });
+    //         }
+    //     } else if (statusUpdate.status === 3) {
+    //         ytdlDebugger.debug("Stream protection rejected token (SPS 3). Resetting Botguard.");
+    //         botguard.shutdown();
+    //     } else {
+    //         protectionFailureCount = 0;
+    //     }
+    // });
 
     if (options.enabledTrackTypes === EnabledTrackTypes.AUDIO_ONLY) {
-        const streams = await serverAbrStream.start(options);
+        const streams = serverAbrStream.start({
+            ...options,
+            isPostLiveDvr: !!playerResponse.video_details?.is_post_live_dvr
+        });
         const cleanupStream = setupSabrCleanUpStream(streams.audioStream, () => serverAbrStream.abort());
 
         return Readable.fromWeb(cleanupStream as Parameters<typeof Readable.fromWeb>[0]);
     }
 
     if (options.enabledTrackTypes === EnabledTrackTypes.VIDEO_ONLY) {
-        const streams = await serverAbrStream.start(options);
+        const streams = serverAbrStream.start({
+            ...options,
+            isPostLiveDvr: !!playerResponse.video_details?.is_post_live_dvr
+        });
         const cleanupStream = setupSabrCleanUpStream(streams.videoStream, () => serverAbrStream.abort());
 
         return Readable.fromWeb(cleanupStream as Parameters<typeof Readable.fromWeb>[0]);
     }
 
-    const { audioStream, videoStream } = await serverAbrStream.start(options);
+    const { audioStream, videoStream } = await serverAbrStream.start({
+        ...options,
+        isPostLiveDvr: !!playerResponse.video_details?.is_post_live_dvr
+    });
 
     ytdlDebugger.debug("Merging audio and video streams into mp4. This may fail if @mediabunny/server is not installed.");
     ytdlDebugger.debug("To ensure reliablity, please either install @mediabunny/server or ensure only MP4 formats are selected with the options parameter")
