@@ -24,6 +24,12 @@ export class BotGuardSimplified {
 
         const worker = new Worker(workerPath);
 
+        worker.on("error", (err) => {
+            throw new Error("Worker failed to initialize,", {
+                cause: err
+            })
+        })
+
         worker.unref();
 
         const botguardSimplified = new BotGuardSimplified(innertube, worker);
