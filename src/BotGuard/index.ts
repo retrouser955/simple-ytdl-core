@@ -124,7 +124,7 @@ export class BotGuardSimplified {
     }
 
     async kill() {
-        this.shutdown();
+        await this.shutdown();
         return this.worker.terminate();
     }
 }
